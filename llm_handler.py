@@ -73,8 +73,18 @@ def get_fish_taxonomy(fish_id, image_filename):
         # Check if the image exists in the expected path
         if not os.path.exists(image_path):
             print(f"⚠️ Image file not found at {image_path}")
-            update_fish_status(fish_id, "error")
-            return
+
+            # Try alternate path (for backward compatibility)
+            alternate_path = os.path.join(IMAGE_DIR, os.path.basename(image_filename))
+            if os.path.exists(alternate_path):
+                print(f"Found image at alternate path: {alternate_path}")
+                image_path = alternate_path
+            else:
+                print(
+                    f"Image not found at alternate path either. Cannot characterize fish ID {fish_id}"
+                )
+                update_fish_status(fish_id, "error")
+                return
 
         img = Image.open(image_path)
 

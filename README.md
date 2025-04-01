@@ -100,6 +100,23 @@ fish-identifier-app/
    - Select a previously processed video from the dropdown to view its results
    - Delete individual fish entries using the trash icon (with confirmation)
 
+## Upgrading from Previous Versions
+
+If you're upgrading from a previous version without video-specific organization:
+
+1. Run the application once to update the database schema:
+   ```
+   python app.py
+   ```
+
+2. Run the migration script to move existing fish images to video-specific folders:
+   ```
+   python migrate_data.py
+   ```
+   - The script will first ask for confirmation
+   - It will process all existing entries and move images to appropriate video folders
+   - Original files are preserved for safety; you can delete them after verifying everything works
+
 ## Technical Details
 
 - **Fish Detection**: Uses YOLOv8 to detect objects in video frames. By default, it captures all detected objects for Gemini to evaluate.

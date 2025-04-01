@@ -302,10 +302,24 @@ def serve_fish_image(filename):
     directory = os.path.dirname(filename)
     basename = os.path.basename(filename)
 
-    if directory:
-        return send_from_directory(os.path.join(IMAGE_DIR, directory), basename)
-    else:
-        return send_from_directory(IMAGE_DIR, basename)
+    try:
+        if directory:
+            # Check if the path exists in the video-specific directory
+            full_path = os.path.join(IMAGE_DIR, directory, basename)
+            if os.path.exists(full_path):
+                return send_from_directory(os.path.join(IMAGE_DIR, directory), basename)
+            else:
+                # If not found in subdirectory, try the main directory as a fallback
+                print(
+                    f"Image not found in video subdirectory, trying main directory: {basename}"
+                )
+                return send_from_directory(IMAGE_DIR, basename)
+        else:
+            return send_from_directory(IMAGE_DIR, basename)
+    except Exception as e:
+        print(f"Error serving image file: {e}")
+        # Return a default image or an error response
+        return jsonify({"error": "Image not found"}), 404
 
 
 @app.route("/download-csv")

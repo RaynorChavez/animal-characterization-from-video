@@ -19,36 +19,58 @@ def get_db():
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS detected_fish (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            image_filename TEXT UNIQUE NOT NULL,
-            video_filename TEXT NOT NULL,
-            timestamps TEXT NOT NULL, -- JSON list of timestamp strings
-            perceptual_hash TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending_characterization', -- pending_characterization, characterizing, characterized, error
-            taxonomy_json TEXT,
-            first_detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    # Add an index for faster hash lookups
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_perceptual_hash ON detected_fish (perceptual_hash);
-    """)
-    # Add an index for video filename lookups
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_video_filename ON detected_fish (video_filename);
-    """)
-    conn.commit()
 
-    # Check if we need to add the video_filename column (for backward compatibility)
-    cursor.execute("PRAGMA table_info(detected_fish)")
-    columns = [col[1] for col in cursor.fetchall()]
-    if "video_filename" not in columns:
-        print("Adding video_filename column to existing database...")
-        cursor.execute(
-            "ALTER TABLE detected_fish ADD COLUMN video_filename TEXT DEFAULT 'unknown'"
-        )
+    # Check if the table exists first
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='detected_fish'"
+    )
+    table_exists = cursor.fetchone()
+
+    if not table_exists:
+        # Create the table with all columns if it doesn't exist
+        print("Creating new detected_fish table...")
+        cursor.execute("""
+            CREATE TABLE detected_fish (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                image_filename TEXT UNIQUE NOT NULL,
+                video_filename TEXT NOT NULL,
+                timestamps TEXT NOT NULL, -- JSON list of timestamp strings
+                perceptual_hash TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending_characterization', -- pending_characterization, characterizing, characterized, error
+                taxonomy_json TEXT,
+                first_detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Add an index for faster hash lookups
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_perceptual_hash ON detected_fish (perceptual_hash);
+        """)
+        # Add an index for video filename lookups
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_video_filename ON detected_fish (video_filename);
+        """)
+        conn.commit()
+    else:
+        # Check if we need to add the video_filename column (for backward compatibility)
+        try:
+            # Try to select from the column to see if it exists
+            cursor.execute("SELECT video_filename FROM detected_fish LIMIT 1")
+        except sqlite3.OperationalError:
+            # Column doesn't exist, add it
+            print("Adding video_filename column to existing database...")
+            cursor.execute(
+                "ALTER TABLE detected_fish ADD COLUMN video_filename TEXT DEFAULT 'unknown'"
+            )
+            conn.commit()
+            print("Column added successfully")
+
+        # Make sure indexes exist
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_perceptual_hash ON detected_fish (perceptual_hash);
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_video_filename ON detected_fish (video_filename);
+        """)
         conn.commit()
 
     conn.close()

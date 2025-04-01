@@ -9,6 +9,7 @@ from database import add_or_update_fish, IMAGE_DIR
 from dotenv import load_dotenv
 import threading  # Added for stop event support
 import pathlib  # For handling file paths
+import shutil  # For file operations
 
 # Load environment variables
 load_dotenv()
@@ -77,8 +78,14 @@ def detect_and_extract_fish(
     # Extract video filename from path
     video_filename = os.path.basename(video_path)
 
-    # Create video-specific directory for detected fish
+    # Create a safe directory name from the video filename
     video_dirname = pathlib.Path(video_filename).stem  # Remove the extension
+    # Remove any special characters that might cause issues in directory names
+    video_dirname = "".join(
+        c if c.isalnum() or c in "-_" else "_" for c in video_dirname
+    )
+
+    # Create video-specific directory for detected fish
     video_image_dir = os.path.join(IMAGE_DIR, video_dirname)
     os.makedirs(video_image_dir, exist_ok=True)
 
