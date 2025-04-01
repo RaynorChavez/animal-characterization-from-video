@@ -2,14 +2,22 @@ import cv2
 from ultralytics import YOLO
 import os
 import uuid
+import time
 from PIL import Image
 import imagehash  # For perceptual hashing
 from database import add_or_update_fish, IMAGE_DIR
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # --- Configuration ---
 MODEL_PATH = "yolov8s.pt"  # Or yolov8n.pt for smaller/faster, yolov8m/l/x for more accurate but slower/larger
 CONFIDENCE_THRESHOLD = 0.4  # Minimum confidence for detection
-FRAMES_TO_SKIP = 15  # Process every Nth frame (adjust based on video speed/needs)
+# FRAMES_TO_SKIP = 15  # Process every Nth frame (adjust based on video speed/needs)
+SECONDS_BETWEEN_FRAMES = float(
+    os.getenv("SECONDS_BETWEEN_FRAMES", "5.0")
+)  # Process a frame every X seconds (from .env or default to 5.0)
 HASH_SIZE = 8  # Perceptual hash size (higher = more detail, slower)
 HASH_SIMILARITY_THRESHOLD = (
     5  # How different hashes can be to be considered the same fish (lower = stricter)
@@ -18,24 +26,25 @@ HASH_SIMILARITY_THRESHOLD = (
 # --- Load Model ---
 # Ensure you have downloaded the model weights (it might download automatically first time)
 try:
-    model = YOLO(MODEL_PATH)
-    # The COCO dataset (which yolov8 is pre-trained on) usually has 'fish' as class 78,
-    # but it's safer to get the class index dynamically if possible, or confirm it.
-    # For standard COCO pre-trained models, 'fish' might not be a default class.
-    # It *does* detect broader categories like 'animal'.
-    # Let's assume for now we look for *any* detected object and rely on Gemini.
-    # OR, if 'fish' *is* a class:
-    # fish_class_id = -1
-    # for i, name in model.names.items():
-    #     if name.lower() == 'fish':
-    #         fish_class_id = i
-    #         break
-    # if fish_class_id == -1:
-    #     print("Warning: 'fish' class not found in model names. Detecting all objects.")
-    # else:
-    #     print(f"Found 'fish' class with ID: {fish_class_id}")
+    print(
+        f"Loading YOLO model '{MODEL_PATH}'... This may take a moment on first run as the model needs to be downloaded."
+    )
+    start_time = time.time()
 
-    print(f"YOLO model '{MODEL_PATH}' loaded successfully.")
+    # Check if the model file exists locally before loading
+    if not os.path.exists(MODEL_PATH):
+        print(
+            f"YOLO model file '{MODEL_PATH}' not found locally. It will be downloaded automatically (20-30MB)."
+        )
+        print("Downloading model. Please wait...")
+
+    model = YOLO(MODEL_PATH)
+    load_time = time.time() - start_time
+
+    print(f"YOLO model '{MODEL_PATH}' loaded successfully in {load_time:.2f} seconds.")
+    print(
+        f"Using time-based frame sampling: processing a frame every {SECONDS_BETWEEN_FRAMES} seconds"
+    )
 except Exception as e:
     print(f"Error loading YOLO model: {e}")
     model = None
@@ -63,6 +72,19 @@ def detect_and_extract_fish(video_path, detection_queue, progress_callback):
     detected_count = 0
     processed_frame_count = 0  # Frames actually processed by YOLO
 
+    # Calculate frames to skip based on time interval and FPS
+    frames_to_skip = int(SECONDS_BETWEEN_FRAMES * fps)
+    if frames_to_skip < 1:
+        frames_to_skip = 1  # Ensure at least 1 frame is skipped
+
+    print(
+        f"Video FPS: {fps}, processing every {frames_to_skip} frames (about every {SECONDS_BETWEEN_FRAMES} seconds)"
+    )
+
+    last_processed_time = -float(
+        "inf"
+    )  # Initialize to negative infinity to ensure first frame is processed
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -70,13 +92,18 @@ def detect_and_extract_fish(video_path, detection_queue, progress_callback):
 
         frame_count += 1
 
-        # Process only every Nth frame
-        if frame_count % FRAMES_TO_SKIP != 0:
-            continue
-
-        processed_frame_count += 1
+        # Get current timestamp in seconds
         timestamp_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
         timestamp_sec = timestamp_msec / 1000.0
+
+        # Process only if enough time has passed since the last processed frame
+        if timestamp_sec - last_processed_time < SECONDS_BETWEEN_FRAMES:
+            continue
+
+        # Update the last processed time
+        last_processed_time = timestamp_sec
+
+        processed_frame_count += 1
         # Format timestamp (e.g., 00:01:23.456)
         minutes, seconds = divmod(timestamp_sec, 60)
         hours, minutes = divmod(minutes, 60)
