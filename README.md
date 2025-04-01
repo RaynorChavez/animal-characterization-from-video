@@ -13,6 +13,7 @@ A web application that automatically detects fish in underwater videos, extracts
 - Interactive results display with timestamps and taxonomic classifications
 - CSV export of detection data for further analysis
 - Clickable fish images with maximized view for detailed inspection
+- Stop button to halt processing at any time
 
 ## Project Structure
 
@@ -86,7 +87,8 @@ fish-identifier-app/
    - Send the images to Gemini for species identification
    - Display results in a table with timestamps and taxonomic information
 
-5. Interact with results:
+5. Control and interact with results:
+   - Use the "Stop Processing" button if you want to halt the detection or characterization at any point
    - Click on any fish image to view it in a larger size
    - Download all detection data as a CSV file using the "Download CSV" button
 
@@ -98,6 +100,7 @@ fish-identifier-app/
 - **Database**: Uses SQLite to store detected fish, their timestamps, and taxonomic information.
 - **API Usage**: Implements rate limiting for Gemini API calls to stay within usage limits.
 - **Data Export**: Provides CSV download functionality for further analysis in spreadsheet software or data science tools.
+- **Process Control**: Allows stopping the processing pipeline at any point while keeping already processed results.
 
 ## Customization via Environment Variables
 

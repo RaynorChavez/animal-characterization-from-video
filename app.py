@@ -188,7 +188,10 @@ def run_detection_and_wait(filepath):
     """Wrapper function to run detection and then signal completion."""
     try:
         detect_and_extract_fish(
-            filepath, characterization_queue, update_detection_progress
+            filepath,
+            characterization_queue,
+            update_detection_progress,
+            llm_worker_stop_event,
         )
     except Exception as e:
         print(f"Error in detection thread: {e}")
@@ -322,6 +325,41 @@ def download_csv():
     except Exception as e:
         print(f"Error generating CSV: {e}")
         return jsonify({"error": "Could not generate CSV"}), 500
+
+
+@app.route("/stop-processing", methods=["POST"])
+def stop_processing():
+    """Endpoint to stop ongoing processing."""
+    global llm_worker_thread
+
+    try:
+        with progress_lock:
+            # Set the stop event to signal worker thread to exit
+            llm_worker_stop_event.set()
+
+            # Update status flags
+            progress_status["processing_active"] = False
+            progress_status["detection"]["message"] = "Processing stopped by user."
+            progress_status["characterization"]["message"] = (
+                "Processing stopped by user."
+            )
+
+            # Optionally clear the queue to prevent further processing
+            while not characterization_queue.empty():
+                try:
+                    characterization_queue.get_nowait()
+                    characterization_queue.task_done()
+                except queue.Empty:
+                    break
+
+        # Wait a short time for thread cleanup
+        time.sleep(0.5)
+
+        return jsonify({"success": True, "message": "Processing stopped successfully."})
+
+    except Exception as e:
+        print(f"Error stopping processing: {e}")
+        return jsonify({"success": False, "error": "Failed to stop processing"}), 500
 
 
 # --- Main Execution ---

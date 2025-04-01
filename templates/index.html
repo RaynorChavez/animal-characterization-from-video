@@ -102,8 +102,18 @@
             Drag & Drop your video file here or click to select
             <input type="file" id="video-input" accept="video/*" style="display: none;">
         </div>
-        <button id="upload-button" class="btn btn-primary mb-3" disabled>Upload and Process</button>
-        <span id="file-name-display" class="ms-3"></span>
+        <div class="d-flex align-items-center mb-3">
+            <button id="upload-button" class="btn btn-primary me-2" disabled>Upload and Process</button>
+            <button id="stop-button" class="btn btn-danger me-2" style="display: none;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                    class="bi bi-stop-fill me-1" viewBox="0 0 16 16">
+                    <path
+                        d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z" />
+                </svg>
+                Stop Processing
+            </button>
+            <span id="file-name-display" class="ms-3"></span>
+        </div>
 
         <div id="progress-section" style="display: none;">
             <h4>Processing Progress</h4>
@@ -168,6 +178,7 @@
         const dropZone = document.getElementById('drop-zone');
         const videoInput = document.getElementById('video-input');
         const uploadButton = document.getElementById('upload-button');
+        const stopButton = document.getElementById('stop-button');
         const fileNameDisplay = document.getElementById('file-name-display');
         const progressSection = document.getElementById('progress-section');
         const detectionProgressBar = document.getElementById('detection-progress-bar');
@@ -185,6 +196,7 @@
         let progressInterval = null;
         let resultsInterval = null;
         let hasResults = false;
+        let isProcessing = false;
 
         // --- Drag and Drop ---
         dropZone.addEventListener('click', () => videoInput.click());
@@ -229,12 +241,12 @@
             }
 
             uploadButton.disabled = true;
-            uploadButton.textContent = 'Processing...';
+            stopButton.style.display = 'inline-block';
+            isProcessing = true;
             errorMessageDiv.style.display = 'none'; // Hide old errors
             progressSection.style.display = 'block'; // Show progress bars
             resetProgressBars();
             resultsBody.innerHTML = '<tr><td colspan="5" class="text-center">Processing video...</td></tr>';
-
 
             const formData = new FormData();
             formData.append('videoFile', selectedFile);
@@ -261,6 +273,41 @@
                 });
         });
 
+        // --- Stop Processing Logic ---
+        stopButton.addEventListener('click', () => {
+            if (!isProcessing) {
+                return;
+            }
+
+            if (!confirm('Are you sure you want to stop the processing? This cannot be resumed.')) {
+                return;
+            }
+
+            fetch('/stop-processing', {
+                method: 'POST',
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        console.log('Processing stopped:', data.message);
+                        // Update UI to reflect processing has stopped
+                        detectionMessage.textContent = 'Processing stopped by user.';
+                        characterizationMessage.textContent = 'Processing stopped by user.';
+
+                        // Final update of results to show what we have so far
+                        updateResults();
+
+                        // Stop polling and reset UI
+                        stopPolling();
+                    } else {
+                        console.error('Failed to stop processing:', data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Stop Processing Error:', error);
+                });
+        });
+
         function resetProgressBars() {
             detectionProgressBar.style.width = '0%';
             detectionProgressBar.textContent = '0%';
@@ -276,6 +323,8 @@
         function resetUI() {
             uploadButton.disabled = false;
             uploadButton.textContent = 'Upload and Process';
+            stopButton.style.display = 'none';
+            isProcessing = false;
             selectedFile = null;
             fileNameDisplay.textContent = '';
             videoInput.value = null; // Clear the file input
@@ -307,6 +356,8 @@
             progressInterval = null;
             resultsInterval = null;
             console.log("Polling stopped.");
+            isProcessing = false;
+            stopButton.style.display = 'none';
             resetUI(); // Re-enable upload button etc.
         }
 

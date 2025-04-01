@@ -7,6 +7,7 @@ from PIL import Image
 import imagehash  # For perceptual hashing
 from database import add_or_update_fish, IMAGE_DIR
 from dotenv import load_dotenv
+import threading  # Added for stop event support
 
 # Load environment variables
 load_dotenv()
@@ -50,15 +51,27 @@ except Exception as e:
     model = None
 
 
-def detect_and_extract_fish(video_path, detection_queue, progress_callback):
+def detect_and_extract_fish(
+    video_path, detection_queue, progress_callback, stop_event=None
+):
     """
     Opens a video, detects fish frame by frame, extracts, hashes, saves,
     and adds new unique fish to the database and queue.
+
+    Args:
+        video_path: Path to the video file
+        detection_queue: Queue for adding detected fish
+        progress_callback: Callback function to report progress
+        stop_event: Optional threading.Event to signal stopping the process
     """
     if not model:
         print("Detection cannot proceed: YOLO model not loaded.")
         progress_callback(0, 0, True)  # Signal error
         return
+
+    # If no stop_event provided, create a dummy one that's never set
+    if stop_event is None:
+        stop_event = threading.Event()
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -85,7 +98,7 @@ def detect_and_extract_fish(video_path, detection_queue, progress_callback):
         "inf"
     )  # Initialize to negative infinity to ensure first frame is processed
 
-    while True:
+    while not stop_event.is_set():
         ret, frame = cap.read()
         if not ret:
             break  # End of video
@@ -98,7 +111,16 @@ def detect_and_extract_fish(video_path, detection_queue, progress_callback):
 
         # Process only if enough time has passed since the last processed frame
         if timestamp_sec - last_processed_time < SECONDS_BETWEEN_FRAMES:
+            # Check stop event more frequently
+            if frame_count % 10 == 0 and stop_event.is_set():
+                print("Stopping detection process as requested.")
+                break
             continue
+
+        # Check if stop requested before processing this frame
+        if stop_event.is_set():
+            print("Stopping detection process as requested.")
+            break
 
         # Update the last processed time
         last_processed_time = timestamp_sec
@@ -118,6 +140,11 @@ def detect_and_extract_fish(video_path, detection_queue, progress_callback):
         for result in results:
             boxes = result.boxes
             for box in boxes.xyxy:  # Bounding boxes in xyxy format
+                # Check stop event during processing
+                if stop_event.is_set():
+                    print("Stopping detection during result processing.")
+                    break
+
                 x1, y1, x2, y2 = map(int, box)
 
                 # --- Optional: Filter by Class ID ---
@@ -176,13 +203,25 @@ def detect_and_extract_fish(video_path, detection_queue, progress_callback):
                 except Exception as e:
                     print(f"Error processing detection at frame {frame_count}: {e}")
 
+            # Check if we need to stop after processing this batch of results
+            if stop_event.is_set():
+                break
+
         # Update progress periodically
         if processed_frame_count % 10 == 0:  # Update progress every 10 processed frames
             progress_callback(frame_count, total_frames, False)
 
-    cap.release()
-    print(
-        f"Video processing complete. Processed {processed_frame_count} frames. Found {detected_count} unique new fish."
-    )
-    # Final progress update
-    progress_callback(total_frames, total_frames, False)
+    # If we exited because of stop_event
+    if stop_event.is_set():
+        print(
+            f"Detection stopped by user. Processed {processed_frame_count} frames. Found {detected_count} unique new fish."
+        )
+        progress_callback(frame_count, total_frames, False)
+    else:
+        # We exited normally (end of video)
+        cap.release()
+        print(
+            f"Video processing complete. Processed {processed_frame_count} frames. Found {detected_count} unique new fish."
+        )
+        # Final progress update
+        progress_callback(total_frames, total_frames, False)
