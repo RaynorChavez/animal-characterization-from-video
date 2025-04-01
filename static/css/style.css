@@ -1,0 +1,46 @@
+/* Additional CSS customizations can be added here */
+.container {
+    max-width: 1200px;
+}
+
+.img-thumbnail {
+    transition: transform 0.2s;
+}
+
+.img-thumbnail:hover {
+    transform: scale(1.5);
+    z-index: 10;
+}
+
+/* Custom scrollbar for timestamp lists */
+.timestamp-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.timestamp-list::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+.timestamp-list::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+}
+
+.timestamp-list::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Additional responsiveness for mobile devices */
+@media (max-width: 768px) {
+    #results-table {
+        font-size: 0.85rem;
+    }
+
+    #results-table pre {
+        font-size: 0.75rem;
+    }
+
+    #drop-zone {
+        padding: 20px;
+    }
+}

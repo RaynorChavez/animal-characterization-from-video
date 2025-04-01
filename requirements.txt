@@ -1,0 +1,8 @@
+Flask
+ultralytics
+opencv-python
+google-generativeai
+python-dotenv
+requests
+Pillow
+imagehash 

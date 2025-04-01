@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Underwater Fish Identifier</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+        }
+
+        #drop-zone {
+            border: 2px dashed #ccc;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 20px;
+            cursor: pointer;
+        }
+
+        #drop-zone.dragover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+
+        .progress-container {
+            margin-bottom: 15px;
+        }
+
+        #results-table img {
+            max-width: 100px;
+            max-height: 70px;
+        }
+
+        #results-table td,
+        #results-table th {
+            vertical-align: middle;
+        }
+
+        .timestamp-list {
+            font-size: 0.8em;
+            max-height: 60px;
+            overflow-y: auto;
+            display: block;
+        }
+
+        pre {
+            background-color: #f4f4f4;
+            padding: 5px;
+            border-radius: 3px;
+            font-size: 0.85em;
+        }
+
+        #error-message {
+            margin-top: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1 class="mb-4">Underwater Fish Identifier</h1>
+
+        <div id="drop-zone">
+            Drag & Drop your video file here or click to select
+            <input type="file" id="video-input" accept="video/*" style="display: none;">
+        </div>
+        <button id="upload-button" class="btn btn-primary mb-3" disabled>Upload and Process</button>
+        <span id="file-name-display" class="ms-3"></span>
+
+        <div id="progress-section" style="display: none;">
+            <h4>Processing Progress</h4>
+            <div class="progress-container">
+                <label for="detection-progress">Frame Detection:</label> <span id="detection-message"
+                    class="text-muted ms-2">Idle</span>
+                <div class="progress">
+                    <div id="detection-progress-bar" class="progress-bar" role="progressbar" style="width: 0%;"
+                        aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                </div>
+            </div>
+            <div class="progress-container">
+                <label for="characterization-progress">LLM Characterization:</label> <span id="characterization-message"
+                    class="text-muted ms-2">Idle</span>
+                <div class="progress">
+                    <div id="characterization-progress-bar" class="progress-bar bg-success" role="progressbar"
+                        style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                </div>
+            </div>
+            <div id="error-message" class="alert alert-danger" style="display: none;"></div>
+        </div>
+
+        <h3 class="mt-5">Detected Fish</h3>
+        <table class="table table-striped table-bordered" id="results-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Image</th>
+                    <th>Timestamps (Video)</th>
+                    <th>Taxonomy (from LLM)</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="results-body">
+                <tr>
+                    <td colspan="5" class="text-center">Upload a video to see results.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const videoInput = document.getElementById('video-input');
+        const uploadButton = document.getElementById('upload-button');
+        const fileNameDisplay = document.getElementById('file-name-display');
+        const progressSection = document.getElementById('progress-section');
+        const detectionProgressBar = document.getElementById('detection-progress-bar');
+        const detectionMessage = document.getElementById('detection-message');
+        const characterizationProgressBar = document.getElementById('characterization-progress-bar');
+        const characterizationMessage = document.getElementById('characterization-message');
+        const errorMessageDiv = document.getElementById('error-message');
+        const resultsBody = document.getElementById('results-body');
+
+        let selectedFile = null;
+        let progressInterval = null;
+        let resultsInterval = null;
+
+        // --- Drag and Drop ---
+        dropZone.addEventListener('click', () => videoInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].type.startsWith('video/')) {
+                handleFileSelect(files[0]);
+            } else {
+                alert('Please drop a valid video file.');
+            }
+        });
+
+        videoInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        function handleFileSelect(file) {
+            selectedFile = file;
+            fileNameDisplay.textContent = `Selected: ${file.name}`;
+            uploadButton.disabled = false;
+        }
+
+        // --- Upload Logic ---
+        uploadButton.addEventListener('click', () => {
+            if (!selectedFile) {
+                alert('Please select a video file first.');
+                return;
+            }
+
+            uploadButton.disabled = true;
+            uploadButton.textContent = 'Processing...';
+            errorMessageDiv.style.display = 'none'; // Hide old errors
+            progressSection.style.display = 'block'; // Show progress bars
+            resetProgressBars();
+            resultsBody.innerHTML = '<tr><td colspan="5" class="text-center">Processing video...</td></tr>';
+
+
+            const formData = new FormData();
+            formData.append('videoFile', selectedFile);
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData,
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showError(`Upload failed: ${data.error}`);
+                        resetUI();
+                    } else {
+                        console.log('Upload successful:', data.message);
+                        // Start polling for progress and results
+                        startPolling();
+                    }
+                })
+                .catch(error => {
+                    console.error('Upload Error:', error);
+                    showError(`Upload error: ${error.message}`);
+                    resetUI();
+                });
+        });
+
+        function resetProgressBars() {
+            detectionProgressBar.style.width = '0%';
+            detectionProgressBar.textContent = '0%';
+            detectionProgressBar.setAttribute('aria-valuenow', 0);
+            detectionMessage.textContent = 'Initializing...';
+
+            characterizationProgressBar.style.width = '0%';
+            characterizationProgressBar.textContent = '0%';
+            characterizationProgressBar.setAttribute('aria-valuenow', 0);
+            characterizationMessage.textContent = 'Waiting for detection...';
+        }
+
+        function resetUI() {
+            uploadButton.disabled = false;
+            uploadButton.textContent = 'Upload and Process';
+            selectedFile = null;
+            fileNameDisplay.textContent = '';
+            videoInput.value = null; // Clear the file input
+            // Maybe hide progress bars again or leave them showing the final state?
+            // progressSection.style.display = 'none';
+        }
+
+        function showError(message) {
+            errorMessageDiv.textContent = message;
+            errorMessageDiv.style.display = 'block';
+        }
+
+
+        // --- Polling for Progress and Results ---
+        function startPolling() {
+            // Clear previous intervals if any
+            if (progressInterval) clearInterval(progressInterval);
+            if (resultsInterval) clearInterval(resultsInterval);
+
+            progressInterval = setInterval(updateProgress, 1500); // Poll progress every 1.5 seconds
+            resultsInterval = setInterval(updateResults, 3000); // Poll results every 3 seconds
+            updateProgress(); // Initial update
+            updateResults(); // Initial update
+        }
+
+        function stopPolling() {
+            if (progressInterval) clearInterval(progressInterval);
+            if (resultsInterval) clearInterval(resultsInterval);
+            progressInterval = null;
+            resultsInterval = null;
+            console.log("Polling stopped.");
+            resetUI(); // Re-enable upload button etc.
+        }
+
+        function updateProgress() {
+            fetch('/progress')
+                .then(response => response.json())
+                .then(data => {
+                    // Detection Progress
+                    const detTotal = data.detection.total > 0 ? data.detection.total : 1; // Avoid division by zero
+                    const detCurrent = data.detection.current;
+                    const detPercent = Math.min(100, Math.round((detCurrent / detTotal) * 100));
+                    detectionProgressBar.style.width = `${detPercent}%`;
+                    detectionProgressBar.textContent = `${detPercent}%`;
+                    detectionProgressBar.setAttribute('aria-valuenow', detPercent);
+                    detectionMessage.textContent = data.detection.message;
+                    if (data.detection.error) {
+                        detectionProgressBar.classList.add('bg-danger');
+                        showError("Error during detection process.");
+                        stopPolling(); // Stop polling on error
+                        return;
+                    } else {
+                        detectionProgressBar.classList.remove('bg-danger');
+                    }
+
+
+                    // Characterization Progress
+                    const charTotal = data.characterization.total > 0 ? data.characterization.total : 1;
+                    const charCurrent = data.characterization.current;
+                    // Only show percentage if total is known (i.e., detection finished)
+                    let charPercent = 0;
+                    if (data.characterization.total > 0) {
+                        charPercent = Math.min(100, Math.round((charCurrent / charTotal) * 100));
+                    } else if (!data.processing_active && charTotal == 0) {
+                        // Handle case where detection finished but found nothing
+                        charPercent = 100; // Show as complete if 0 items
+                    }
+
+                    characterizationProgressBar.style.width = `${charPercent}%`;
+                    characterizationProgressBar.textContent = `${charPercent}%`;
+                    characterizationProgressBar.setAttribute('aria-valuenow', charPercent);
+                    characterizationMessage.textContent = data.characterization.message;
+
+                    // Stop polling if both detection and characterization seem complete
+                    const detectionComplete = detCurrent >= detTotal;
+                    // Check if characterization is complete OR if detection is done and nothing was queued
+                    const characterizationEffectivelyComplete = (charCurrent >= charTotal && charTotal > 0) || (detectionComplete && charTotal === 0);
+
+                    if (!data.processing_active && detectionComplete && characterizationEffectivelyComplete) {
+                        console.log("Processing appears complete.");
+                        // Final update before stopping
+                        updateResults();
+                        stopPolling();
+                    }
+                })
+                .catch(error => {
+                    console.error('Progress Fetch Error:', error);
+                    showError(`Error fetching progress: ${error.message}. Stopping updates.`);
+                    stopPolling(); // Stop polling on fetch error
+                });
+        }
+
+        function updateResults() {
+            fetch('/results')
+                .then(response => response.json())
+                .then(data => {
+                    resultsBody.innerHTML = ''; // Clear existing results
+                    if (data.error) {
+                        resultsBody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Error loading results: ${data.error}</td></tr>`;
+                        return;
+                    }
+                    if (data.length === 0) {
+                        // Check if processing is still active before saying "No fish"
+                        fetch('/progress').then(r => r.json()).then(p => {
+                            if (!p.processing_active && p.detection.current >= p.detection.total) {
+                                resultsBody.innerHTML = `<tr><td colspan="5" class="text-center">No fish detected or characterized yet.</td></tr>`;
+                            } else {
+                                // Keep the initial message if processing is ongoing but no results yet
+                                if (resultsBody.innerHTML === '') { // Avoid flicker if already showing processing
+                                    resultsBody.innerHTML = `<tr><td colspan="5" class="text-center">Processing video... waiting for results.</td></tr>`;
+                                }
+                            }
+                        });
+                    } else {
+                        data.forEach((fish, index) => {
+                            const row = document.createElement('tr');
+
+                            // Format timestamps
+                            const timestampsHtml = `<div class="timestamp-list">${fish.timestamps.join('<br>')}</div>`;
+
+                            // Format taxonomy
+                            let taxonomyHtml = '<i>Pending...</i>';
+                            if (fish.status === 'characterized' && fish.taxonomy_data) {
+                                taxonomyHtml = '<pre>' + JSON.stringify(fish.taxonomy_data, null, 2) + '</pre>';
+                            } else if (fish.status === 'characterizing') {
+                                taxonomyHtml = '<i>Characterizing...</i>';
+                            } else if (fish.status === 'error') {
+                                taxonomyHtml = '<i class="text-danger">Error</i>';
+                            }
+
+
+                            row.innerHTML = `
+                                 <td>${index + 1}</td>
+                                 <td><img src="${fish.image_url}" alt="Detected Fish ${fish.id}" class="img-thumbnail"></td>
+                                 <td>${timestampsHtml}</td>
+                                 <td>${taxonomyHtml}</td>
+                                 <td><span class="badge bg-${getStatusColor(fish.status)}">${fish.status.replace('_', ' ')}</span></td>
+                             `;
+                            resultsBody.appendChild(row);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Results Fetch Error:', error);
+                    resultsBody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Error loading results: ${error.message}</td></tr>`;
+                });
+        }
+
+        function getStatusColor(status) {
+            switch (status) {
+                case 'characterized': return 'success';
+                case 'characterizing': return 'info';
+                case 'pending_characterization': return 'secondary';
+                case 'error': return 'danger';
+                default: return 'light';
+            }
+        }
+
+        // Initial load message
+        resultsBody.innerHTML = '<tr><td colspan="5" class="text-center">Upload a video to begin.</td></tr>';
+
+    </script>
+</body>
+
+</html>
