@@ -91,6 +91,16 @@
             font-weight: bold;
             cursor: pointer;
         }
+
+        .delete-btn {
+            color: #dc3545;
+            cursor: pointer;
+            font-size: 1.2rem;
+        }
+
+        .delete-btn:hover {
+            color: #a71d2a;
+        }
     </style>
 </head>
 
@@ -137,7 +147,18 @@
         </div>
 
         <div class="d-flex justify-content-between align-items-center mt-5 mb-2">
-            <h3 class="mb-0">Detected Fish</h3>
+            <div class="d-flex align-items-center">
+                <h3 class="mb-0 me-3">Detected Fish</h3>
+                <div class="input-group" style="width: auto;">
+                    <label class="input-group-text" for="video-selector">Video:</label>
+                    <select class="form-select" id="video-selector">
+                        <option value="">All Videos</option>
+                        {% for video in videos %}
+                        <option value="{{ video }}">{{ video }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
             <button id="download-csv-button" class="btn btn-success" disabled>
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
                     class="bi bi-download me-1" viewBox="0 0 16 16">
@@ -154,14 +175,16 @@
                 <tr>
                     <th>#</th>
                     <th>Image</th>
-                    <th>Timestamps (Video)</th>
+                    <th>Video</th>
+                    <th>Timestamps</th>
                     <th>Taxonomy (from LLM)</th>
                     <th>Status</th>
+                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="results-body">
                 <tr>
-                    <td colspan="5" class="text-center">Upload a video to see results.</td>
+                    <td colspan="7" class="text-center">Upload a video to see results.</td>
                 </tr>
             </tbody>
         </table>
@@ -171,6 +194,26 @@
     <div id="image-modal" class="image-modal">
         <span class="close-modal">&times;</span>
         <img class="modal-content" id="modal-img">
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div class="modal fade" id="delete-confirm-modal" tabindex="-1" aria-labelledby="delete-confirm-modal-label"
+        aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="delete-confirm-modal-label">Confirm Deletion</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    Are you sure you want to delete this fish entry? This action cannot be undone.
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="confirm-delete-btn">Delete</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -191,12 +234,16 @@
         const imageModal = document.getElementById('image-modal');
         const modalImg = document.getElementById('modal-img');
         const closeModal = document.querySelector('.close-modal');
+        const videoSelector = document.getElementById('video-selector');
+        const deleteConfirmModal = new bootstrap.Modal(document.getElementById('delete-confirm-modal'));
+        const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
 
         let selectedFile = null;
         let progressInterval = null;
         let resultsInterval = null;
         let hasResults = false;
         let isProcessing = false;
+        let currentFishIdToDelete = null;
 
         // --- Drag and Drop ---
         dropZone.addEventListener('click', () => videoInput.click());
@@ -246,7 +293,7 @@
             errorMessageDiv.style.display = 'none'; // Hide old errors
             progressSection.style.display = 'block'; // Show progress bars
             resetProgressBars();
-            resultsBody.innerHTML = '<tr><td colspan="5" class="text-center">Processing video...</td></tr>';
+            resultsBody.innerHTML = '<tr><td colspan="7" class="text-center">Processing video...</td></tr>';
 
             const formData = new FormData();
             formData.append('videoFile', selectedFile);
@@ -264,6 +311,9 @@
                         console.log('Upload successful:', data.message);
                         // Start polling for progress and results
                         startPolling();
+
+                        // Update video selector with the new video
+                        refreshVideoSelector(selectedFile.name);
                     }
                 })
                 .catch(error => {
@@ -272,6 +322,31 @@
                     resetUI();
                 });
         });
+
+        // --- Video Selector Logic ---
+        videoSelector.addEventListener('change', function () {
+            updateResults(this.value);
+        });
+
+        function refreshVideoSelector(newVideoName) {
+            fetch('/videos')
+                .then(response => response.json())
+                .then(videos => {
+                    // Clear and rebuild options
+                    videoSelector.innerHTML = '<option value="">All Videos</option>';
+                    videos.forEach(video => {
+                        const option = document.createElement('option');
+                        option.value = video;
+                        option.textContent = video;
+                        // Select the newly uploaded video
+                        if (video === newVideoName) {
+                            option.selected = true;
+                        }
+                        videoSelector.appendChild(option);
+                    });
+                })
+                .catch(error => console.error('Error refreshing video list:', error));
+        }
 
         // --- Stop Processing Logic ---
         stopButton.addEventListener('click', () => {
@@ -295,7 +370,7 @@
                         characterizationMessage.textContent = 'Processing stopped by user.';
 
                         // Final update of results to show what we have so far
-                        updateResults();
+                        updateResults(videoSelector.value);
 
                         // Stop polling and reset UI
                         stopPolling();
@@ -345,9 +420,9 @@
             if (resultsInterval) clearInterval(resultsInterval);
 
             progressInterval = setInterval(updateProgress, 1500); // Poll progress every 1.5 seconds
-            resultsInterval = setInterval(updateResults, 3000); // Poll results every 3 seconds
+            resultsInterval = setInterval(() => updateResults(videoSelector.value), 3000); // Poll results every 3 seconds
             updateProgress(); // Initial update
-            updateResults(); // Initial update
+            updateResults(videoSelector.value); // Initial update
         }
 
         function stopPolling() {
@@ -408,7 +483,7 @@
                     if (!data.processing_active && detectionComplete && characterizationEffectivelyComplete) {
                         console.log("Processing appears complete.");
                         // Final update before stopping
-                        updateResults();
+                        updateResults(videoSelector.value);
                         stopPolling();
                     }
                 })
@@ -419,26 +494,31 @@
                 });
         }
 
-        function updateResults() {
-            fetch('/results')
+        function updateResults(videoFilter = '') {
+            let url = '/results';
+            if (videoFilter) {
+                url += `?video=${encodeURIComponent(videoFilter)}`;
+            }
+
+            fetch(url)
                 .then(response => response.json())
                 .then(data => {
                     resultsBody.innerHTML = ''; // Clear existing results
                     if (data.error) {
-                        resultsBody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Error loading results: ${data.error}</td></tr>`;
+                        resultsBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Error loading results: ${data.error}</td></tr>`;
                         return;
                     }
                     if (data.length === 0) {
                         // Check if processing is still active before saying "No fish"
                         fetch('/progress').then(r => r.json()).then(p => {
                             if (!p.processing_active && p.detection.current >= p.detection.total) {
-                                resultsBody.innerHTML = `<tr><td colspan="5" class="text-center">No fish detected or characterized yet.</td></tr>`;
+                                resultsBody.innerHTML = `<tr><td colspan="7" class="text-center">No fish detected or characterized yet.</td></tr>`;
                                 hasResults = false;
                                 downloadCsvButton.disabled = true;
                             } else {
                                 // Keep the initial message if processing is ongoing but no results yet
                                 if (resultsBody.innerHTML === '') { // Avoid flicker if already showing processing
-                                    resultsBody.innerHTML = `<tr><td colspan="5" class="text-center">Processing video... waiting for results.</td></tr>`;
+                                    resultsBody.innerHTML = `<tr><td colspan="7" class="text-center">Processing video... waiting for results.</td></tr>`;
                                 }
                             }
                         });
@@ -459,15 +539,32 @@
                                 taxonomyHtml = '<i class="text-danger">Error</i>';
                             }
 
+                            // Delete button
+                            const deleteButton = `<span class="delete-btn" data-fish-id="${fish.id}" title="Delete this entry">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16">
+                                    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                                    <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                                </svg>
+                            </span>`;
 
                             row.innerHTML = `
                                  <td>${index + 1}</td>
                                  <td><img src="${fish.image_url}" alt="Detected Fish ${fish.id}" class="img-thumbnail fish-image" data-fish-id="${fish.id}"></td>
+                                 <td>${fish.video_filename}</td>
                                  <td>${timestampsHtml}</td>
                                  <td>${taxonomyHtml}</td>
                                  <td><span class="badge bg-${getStatusColor(fish.status)}">${fish.status.replace('_', ' ')}</span></td>
+                                 <td>${deleteButton}</td>
                              `;
                             resultsBody.appendChild(row);
+                        });
+
+                        // Add event listeners for delete buttons
+                        document.querySelectorAll('.delete-btn').forEach(btn => {
+                            btn.addEventListener('click', function () {
+                                const fishId = this.getAttribute('data-fish-id');
+                                showDeleteConfirmation(fishId);
+                            });
                         });
 
                         // Enable the CSV download button when we have results
@@ -477,7 +574,41 @@
                 })
                 .catch(error => {
                     console.error('Results Fetch Error:', error);
-                    resultsBody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Error loading results: ${error.message}</td></tr>`;
+                    resultsBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Error loading results: ${error.message}</td></tr>`;
+                });
+        }
+
+        function showDeleteConfirmation(fishId) {
+            currentFishIdToDelete = fishId;
+            deleteConfirmModal.show();
+        }
+
+        // Handle delete confirmation
+        confirmDeleteBtn.addEventListener('click', function () {
+            if (currentFishIdToDelete) {
+                deleteEntry(currentFishIdToDelete);
+            }
+            deleteConfirmModal.hide();
+        });
+
+        function deleteEntry(fishId) {
+            fetch(`/delete-entry/${fishId}`, {
+                method: 'DELETE'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        console.log(`Successfully deleted entry ${fishId}`);
+                        // Refresh the results to reflect the deletion
+                        updateResults(videoSelector.value);
+                    } else {
+                        console.error(`Error deleting entry: ${data.error}`);
+                        alert(`Failed to delete: ${data.error}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Delete Error:', error);
+                    alert(`Error during deletion: ${error.message}`);
                 });
         }
 
@@ -492,7 +623,7 @@
         }
 
         // Initial load message
-        resultsBody.innerHTML = '<tr><td colspan="5" class="text-center">Upload a video to begin.</td></tr>';
+        resultsBody.innerHTML = '<tr><td colspan="7" class="text-center">Upload a video to begin.</td></tr>';
 
         // --- CSV Download Button ---
         downloadCsvButton.addEventListener('click', () => {
@@ -500,7 +631,14 @@
                 alert('No results available to download.');
                 return;
             }
-            window.location.href = '/download-csv';
+
+            const selectedVideo = videoSelector.value;
+            let downloadUrl = '/download-csv';
+            if (selectedVideo) {
+                downloadUrl += `?video=${encodeURIComponent(selectedVideo)}`;
+            }
+
+            window.location.href = downloadUrl;
         });
 
         // --- Image Modal Functionality ---
@@ -531,6 +669,21 @@
                 imageModal.style.display = 'none';
             }
         });
+
+        // Load initial video list
+        fetch('/videos')
+            .then(response => response.json())
+            .then(videos => {
+                // Clear and rebuild options
+                videoSelector.innerHTML = '<option value="">All Videos</option>';
+                videos.forEach(video => {
+                    const option = document.createElement('option');
+                    option.value = video;
+                    option.textContent = video;
+                    videoSelector.appendChild(option);
+                });
+            })
+            .catch(error => console.error('Error loading video list:', error));
     </script>
 </body>
 

@@ -1,6 +1,6 @@
 # Fish Video Species Detection
 
-A web application that automatically detects fish in underwater videos, extracts and catalogs them, and uses Google's Gemini API to identify their species.
+A web application that automatically detects fish in underwater videos, extracts and catalogs them, and uses Google's Gemini AI to identify their species.
 
 ## Features
 
@@ -14,6 +14,9 @@ A web application that automatically detects fish in underwater videos, extracts
 - CSV export of detection data for further analysis
 - Clickable fish images with maximized view for detailed inspection
 - Stop button to halt processing at any time
+- Load and review previously processed videos
+- Video-specific organization of detected fish
+- Delete individual fish entries with confirmation
 
 ## Project Structure
 
@@ -28,6 +31,9 @@ fish-identifier-app/
 │
 ├── uploads/                 # Temp storage for uploaded videos
 ├── detected_fish/           # Storage for cropped fish images
+│   ├── video1/              # Video-specific folders for fish images
+│   ├── video2/              # Each video gets its own folder
+│   └── ...                  
 │
 ├── templates/
 │   └── index.html           # Frontend HTML
@@ -83,7 +89,7 @@ fish-identifier-app/
 4. The application will:
    - Process the video at regular time intervals (default: every 5 seconds)
    - Detect fish using YOLOv8
-   - Extract unique fish images
+   - Extract unique fish images and save them in a video-specific folder
    - Send the images to Gemini for species identification
    - Display results in a table with timestamps and taxonomic information
 
@@ -91,6 +97,8 @@ fish-identifier-app/
    - Use the "Stop Processing" button if you want to halt the detection or characterization at any point
    - Click on any fish image to view it in a larger size
    - Download all detection data as a CSV file using the "Download CSV" button
+   - Select a previously processed video from the dropdown to view its results
+   - Delete individual fish entries using the trash icon (with confirmation)
 
 ## Technical Details
 
@@ -101,6 +109,8 @@ fish-identifier-app/
 - **API Usage**: Implements rate limiting for Gemini API calls to stay within usage limits.
 - **Data Export**: Provides CSV download functionality for further analysis in spreadsheet software or data science tools.
 - **Process Control**: Allows stopping the processing pipeline at any point while keeping already processed results.
+- **Data Organization**: Stores fish images in video-specific folders for better organization and management.
+- **Entry Management**: Allows users to delete individual fish entries with confirmation to prevent accidental deletion.
 
 ## Customization via Environment Variables
 

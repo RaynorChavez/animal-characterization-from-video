@@ -70,6 +70,12 @@ def get_fish_taxonomy(fish_id, image_filename):
     update_fish_status(fish_id, "characterizing")
 
     try:
+        # Check if the image exists in the expected path
+        if not os.path.exists(image_path):
+            print(f"⚠️ Image file not found at {image_path}")
+            update_fish_status(fish_id, "error")
+            return
+
         img = Image.open(image_path)
 
         # Convert image to bytes if needed by the library/model version

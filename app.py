@@ -9,8 +9,15 @@ import io
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from flask import make_response
+import shutil  # For file operations
 
-from database import get_all_fish_data, init_db, IMAGE_DIR
+from database import (
+    get_all_fish_data,
+    init_db,
+    IMAGE_DIR,
+    get_processed_videos,
+    delete_fish_entry,
+)
 from detector import detect_and_extract_fish
 from llm_handler import get_fish_taxonomy
 
@@ -31,6 +38,7 @@ progress_status = {
 progress_lock = threading.Lock()  # To safely update progress from threads
 characterization_queue = queue.Queue()
 llm_worker_stop_event = threading.Event()
+current_video = None  # Track currently selected video
 
 
 # --- Background Worker for LLM ---
@@ -115,13 +123,15 @@ def update_detection_progress(current_frame, total_frames, error_occurred):
 @app.route("/")
 def index():
     """Renders the main page."""
-    return render_template("index.html")
+    # Pass the list of processed videos to the template
+    videos = get_processed_videos()
+    return render_template("index.html", videos=videos)
 
 
 @app.route("/upload", methods=["POST"])
 def upload_video():
     """Handles video upload, starts background processing."""
-    global llm_worker_thread  # Make sure we can potentially manage the thread later
+    global llm_worker_thread, current_video  # Make sure we can potentially manage the thread later
     with progress_lock:
         if progress_status["processing_active"]:
             return jsonify({"error": "Processing already in progress."}), 400
@@ -139,6 +149,9 @@ def upload_video():
         try:
             file.save(filepath)
             print(f"Video saved to {filepath}")
+
+            # Set as current video
+            current_video = filename
 
             # Reset progress and start processing
             with progress_lock:
@@ -231,13 +244,15 @@ def progress():
 @app.route("/results")
 def results():
     """Endpoint for the frontend to poll for the latest database results."""
+    video_filter = request.args.get("video")
+
     try:
-        data = get_all_fish_data()
+        data = get_all_fish_data(video_filter)
         # Add full URL for images
         for item in data:
             item["image_url"] = url_for(
-                "static",
-                filename=f"{IMAGE_DIR}/{item['image_filename']}",
+                "serve_fish_image",
+                filename=item["image_filename"],
                 _external=False,
             )
             # Parse timestamps string back to list for easier frontend handling
@@ -254,19 +269,53 @@ def results():
         return jsonify({"error": "Could not fetch results"}), 500
 
 
+@app.route("/videos")
+def get_videos():
+    """Return a list of all processed videos."""
+    try:
+        videos = get_processed_videos()
+        return jsonify(videos)
+    except Exception as e:
+        print(f"Error fetching videos: {e}")
+        return jsonify({"error": "Could not fetch video list"}), 500
+
+
+@app.route("/select-video", methods=["POST"])
+def select_video():
+    """Select a video to display in the results table."""
+    global current_video
+    video_filename = request.json.get("video_filename")
+
+    if not video_filename:
+        return jsonify({"error": "No video filename provided"}), 400
+
+    current_video = video_filename
+    return jsonify({"success": True, "selected_video": video_filename})
+
+
 # Serve static files (like the cropped fish images)
-@app.route("/static/detected_fish/<filename>")
+@app.route("/static/detected_fish/<path:filename>")
 def serve_fish_image(filename):
+    """Serve fish images from their video-specific directories."""
     # Use send_from_directory for security
-    return send_from_directory(IMAGE_DIR, filename)
+    # The filename now includes the video folder
+    directory = os.path.dirname(filename)
+    basename = os.path.basename(filename)
+
+    if directory:
+        return send_from_directory(os.path.join(IMAGE_DIR, directory), basename)
+    else:
+        return send_from_directory(IMAGE_DIR, basename)
 
 
 @app.route("/download-csv")
 def download_csv():
     """Endpoint to download all fish detection data as a CSV file."""
+    video_filter = request.args.get("video")
+
     try:
-        # Get all data from the database
-        fish_data = get_all_fish_data()
+        # Get data filtered by video if specified
+        fish_data = get_all_fish_data(video_filter)
 
         # Create a StringIO object to write CSV data
         csv_data = io.StringIO()
@@ -277,6 +326,7 @@ def download_csv():
             [
                 "ID",
                 "Image Filename",
+                "Video Filename",
                 "Timestamps",
                 "Status",
                 "Kingdom",
@@ -301,6 +351,7 @@ def download_csv():
                 [
                     fish["id"],
                     fish["image_filename"],
+                    fish["video_filename"],
                     fish["timestamps"],  # This will be a JSON string
                     fish["status"],
                     taxonomy.get("Kingdom", "Unknown"),
@@ -313,10 +364,13 @@ def download_csv():
                 ]
             )
 
+        # Create filename based on video if filtered
+        filename_prefix = f"{video_filter}_" if video_filter else ""
+
         # Create response with CSV data
         response = make_response(csv_data.getvalue())
         response.headers["Content-Disposition"] = (
-            f"attachment; filename=fish_detections_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            f"attachment; filename={filename_prefix}fish_detections_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         )
         response.headers["Content-type"] = "text/csv"
 
@@ -325,6 +379,37 @@ def download_csv():
     except Exception as e:
         print(f"Error generating CSV: {e}")
         return jsonify({"error": "Could not generate CSV"}), 500
+
+
+@app.route("/delete-entry/<int:fish_id>", methods=["DELETE"])
+def delete_entry(fish_id):
+    """Delete a specific fish entry."""
+    try:
+        # Delete from database and get the image filename
+        image_filename = delete_fish_entry(fish_id)
+
+        if not image_filename:
+            return jsonify({"error": "Entry not found"}), 404
+
+        # Delete the image file
+        try:
+            image_path = os.path.join(IMAGE_DIR, image_filename)
+            if os.path.exists(image_path):
+                os.remove(image_path)
+                print(f"Deleted image file: {image_path}")
+            else:
+                print(f"Image file not found: {image_path}")
+        except Exception as e:
+            print(f"Error deleting image file: {e}")
+            # Continue with success response even if file deletion fails
+
+        return jsonify(
+            {"success": True, "message": f"Entry {fish_id} deleted successfully"}
+        )
+
+    except Exception as e:
+        print(f"Error deleting entry: {e}")
+        return jsonify({"error": f"Failed to delete entry: {e}"}), 500
 
 
 @app.route("/stop-processing", methods=["POST"])

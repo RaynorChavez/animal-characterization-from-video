@@ -23,6 +23,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS detected_fish (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             image_filename TEXT UNIQUE NOT NULL,
+            video_filename TEXT NOT NULL,
             timestamps TEXT NOT NULL, -- JSON list of timestamp strings
             perceptual_hash TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending_characterization', -- pending_characterization, characterizing, characterized, error
@@ -34,18 +35,34 @@ def init_db():
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_perceptual_hash ON detected_fish (perceptual_hash);
     """)
+    # Add an index for video filename lookups
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_video_filename ON detected_fish (video_filename);
+    """)
     conn.commit()
+
+    # Check if we need to add the video_filename column (for backward compatibility)
+    cursor.execute("PRAGMA table_info(detected_fish)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if "video_filename" not in columns:
+        print("Adding video_filename column to existing database...")
+        cursor.execute(
+            "ALTER TABLE detected_fish ADD COLUMN video_filename TEXT DEFAULT 'unknown'"
+        )
+        conn.commit()
+
     conn.close()
 
 
-def add_or_update_fish(image_filename, timestamp_str, p_hash):
+def add_or_update_fish(image_filename, video_filename, timestamp_str, p_hash):
     """Adds a new fish or updates the timestamp list of an existing similar fish."""
     conn = get_db()
     cursor = conn.cursor()
 
-    # Check for existing fish with the same hash (or very similar if needed)
+    # Check for existing fish with the same hash (or very similar if needed) from the same video
     cursor.execute(
-        "SELECT id, timestamps FROM detected_fish WHERE perceptual_hash = ?", (p_hash,)
+        "SELECT id, timestamps FROM detected_fish WHERE perceptual_hash = ? AND video_filename = ?",
+        (p_hash, video_filename),
     )
     existing = cursor.fetchone()
 
@@ -67,21 +84,29 @@ def add_or_update_fish(image_filename, timestamp_str, p_hash):
             conn.commit()
         updated_existing = True
         print(
-            f"Updated timestamps for existing fish ID {existing_id} with hash {p_hash}"
+            f"Updated timestamps for existing fish ID {existing_id} with hash {p_hash} from {video_filename}"
         )
     else:
         timestamps = json.dumps([timestamp_str])
         try:
             cursor.execute(
                 """
-                INSERT INTO detected_fish (image_filename, timestamps, perceptual_hash, status)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO detected_fish (image_filename, video_filename, timestamps, perceptual_hash, status)
+                VALUES (?, ?, ?, ?, ?)
             """,
-                (image_filename, timestamps, p_hash, "pending_characterization"),
+                (
+                    image_filename,
+                    video_filename,
+                    timestamps,
+                    p_hash,
+                    "pending_characterization",
+                ),
             )
             conn.commit()
             new_entry_id = cursor.lastrowid
-            print(f"Added new fish ID {new_entry_id} with hash {p_hash}")
+            print(
+                f"Added new fish ID {new_entry_id} with hash {p_hash} from {video_filename}"
+            )
         except sqlite3.IntegrityError:
             print(
                 f"Warning: Attempted to insert duplicate image filename {image_filename} or hash {p_hash}. Skipping."
@@ -121,16 +146,63 @@ def update_fish_status(fish_id, status, taxonomy_json=None):
     conn.close()
 
 
-def get_all_fish_data():
+def get_all_fish_data(video_filename=None):
+    """Gets all fish data, optionally filtered by video filename."""
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id, image_filename, timestamps, status, taxonomy_json FROM detected_fish ORDER BY first_detected_at DESC"
-    )
+
+    if video_filename:
+        cursor.execute(
+            "SELECT id, image_filename, video_filename, timestamps, status, taxonomy_json FROM detected_fish "
+            "WHERE video_filename = ? ORDER BY first_detected_at DESC",
+            (video_filename,),
+        )
+    else:
+        cursor.execute(
+            "SELECT id, image_filename, video_filename, timestamps, status, taxonomy_json FROM detected_fish "
+            "ORDER BY first_detected_at DESC"
+        )
+
     results = cursor.fetchall()
     conn.close()
     # Convert Row objects to dictionaries for JSON serialization
     return [dict(row) for row in results]
+
+
+def get_processed_videos():
+    """Get a list of all processed video filenames."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT DISTINCT video_filename FROM detected_fish ORDER BY video_filename"
+    )
+    results = cursor.fetchall()
+    conn.close()
+    return [row["video_filename"] for row in results]
+
+
+def delete_fish_entry(fish_id):
+    """Delete a specific fish entry by ID."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # First get the image filename so we can delete the file
+    cursor.execute("SELECT image_filename FROM detected_fish WHERE id = ?", (fish_id,))
+    result = cursor.fetchone()
+
+    if result:
+        image_filename = result["image_filename"]
+
+        # Delete the database entry
+        cursor.execute("DELETE FROM detected_fish WHERE id = ?", (fish_id,))
+        conn.commit()
+        conn.close()
+
+        # Return the image filename so the file can be deleted if needed
+        return image_filename
+
+    conn.close()
+    return None
 
 
 # Initialize the database on module load

@@ -8,6 +8,7 @@ import imagehash  # For perceptual hashing
 from database import add_or_update_fish, IMAGE_DIR
 from dotenv import load_dotenv
 import threading  # Added for stop event support
+import pathlib  # For handling file paths
 
 # Load environment variables
 load_dotenv()
@@ -72,6 +73,17 @@ def detect_and_extract_fish(
     # If no stop_event provided, create a dummy one that's never set
     if stop_event is None:
         stop_event = threading.Event()
+
+    # Extract video filename from path
+    video_filename = os.path.basename(video_path)
+
+    # Create video-specific directory for detected fish
+    video_dirname = pathlib.Path(video_filename).stem  # Remove the extension
+    video_image_dir = os.path.join(IMAGE_DIR, video_dirname)
+    os.makedirs(video_image_dir, exist_ok=True)
+
+    print(f"Processing video: {video_filename}")
+    print(f"Storing detected fish images in: {video_image_dir}")
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -179,19 +191,22 @@ def detect_and_extract_fish(
 
                     # Save the cropped image with a unique name
                     image_filename = f"fish_{uuid.uuid4()}.png"
-                    save_path = os.path.join(IMAGE_DIR, image_filename)
+                    save_path = os.path.join(video_image_dir, image_filename)
                     cv2.imwrite(save_path, cropped_fish)
+
+                    # Store image path relative to IMAGE_DIR to preserve video folder organization
+                    rel_image_path = os.path.join(video_dirname, image_filename)
 
                     # Add to DB or update timestamp; get ID if it's a *new* unique fish
                     new_fish_id = add_or_update_fish(
-                        image_filename, timestamp_str, p_hash
+                        rel_image_path, video_filename, timestamp_str, p_hash
                     )
 
                     if new_fish_id:
                         detected_count += 1
                         # Add the *ID* and filename to the queue for LLM processing
                         detection_queue.put(
-                            {"id": new_fish_id, "filename": image_filename}
+                            {"id": new_fish_id, "filename": rel_image_path}
                         )
                         print(f"Queued new fish ID {new_fish_id} for characterization.")
                     else:
