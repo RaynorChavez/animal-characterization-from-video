@@ -44,6 +44,38 @@
             vertical-align: middle;
         }
 
+        /* Video column width and scrolling */
+        #results-table th:nth-child(3),
+        #results-table td:nth-child(3) {
+            max-width: 200px;
+            width: 200px;
+            white-space: nowrap;
+            overflow-x: auto;
+        }
+
+        /* Custom scrollbar for video filename and timestamp lists */
+        #results-table td:nth-child(3)::-webkit-scrollbar,
+        .timestamp-list::-webkit-scrollbar {
+            height: 6px;
+            width: 6px;
+        }
+
+        #results-table td:nth-child(3)::-webkit-scrollbar-track,
+        .timestamp-list::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        #results-table td:nth-child(3)::-webkit-scrollbar-thumb,
+        .timestamp-list::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 3px;
+        }
+
+        #results-table td:nth-child(3)::-webkit-scrollbar-thumb:hover,
+        .timestamp-list::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
         .timestamp-list {
             font-size: 0.8em;
             max-height: 60px;

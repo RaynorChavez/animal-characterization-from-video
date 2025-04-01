@@ -28,6 +28,7 @@ fish-identifier-app/
 ├── database.py              # Database interaction functions
 ├── llm_handler.py           # Gemini API interaction logic
 ├── detector.py              # Fish detection logic using YOLO
+├── migrate_data.py          # Migration script for upgrading from previous versions
 │
 ├── uploads/                 # Temp storage for uploaded videos
 ├── detected_fish/           # Storage for cropped fish images
@@ -48,7 +49,18 @@ fish-identifier-app/
 ## Prerequisites
 
 - Python 3.8 or higher
-- A Gemini API key from Google AI Studio
+- A Gemini API key from Google AI Studio (https://aistudio.google.com/)
+
+### Getting a Gemini API Key
+
+1. Visit [Google AI Studio](https://aistudio.google.com/)
+2. Sign in with your Google account
+3. Navigate to the "Get API key" section
+4. Create a new API key or use an existing one
+5. Copy the API key for use in the application
+6. When setting up your `.env` file, paste this key as the value for `GEMINI_API_KEY`
+
+Note: The application uses Gemini 2.0 Flash model for fish species identification. The free tier of the API includes a reasonable number of requests per minute, which should be sufficient for most uses. Adjust the `GEMINI_RPM` setting in your `.env` file if you encounter rate limiting issues.
 
 ## Installation
 
@@ -145,4 +157,4 @@ You can adjust several parameters by setting environment variables in the `.env`
 
 - YOLOv8 by Ultralytics
 - Google's Gemini API for species identification
-- Flask for the web framework 
+- Flask for the web framework
