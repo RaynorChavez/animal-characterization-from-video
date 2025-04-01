@@ -4,7 +4,11 @@ import threading
 import queue
 import time
 import json
+import csv
+import io
+from datetime import datetime
 from werkzeug.utils import secure_filename
+from flask import make_response
 
 from database import get_all_fish_data, init_db, IMAGE_DIR
 from detector import detect_and_extract_fish
@@ -252,6 +256,72 @@ def results():
 def serve_fish_image(filename):
     # Use send_from_directory for security
     return send_from_directory(IMAGE_DIR, filename)
+
+
+@app.route("/download-csv")
+def download_csv():
+    """Endpoint to download all fish detection data as a CSV file."""
+    try:
+        # Get all data from the database
+        fish_data = get_all_fish_data()
+
+        # Create a StringIO object to write CSV data
+        csv_data = io.StringIO()
+        csv_writer = csv.writer(csv_data)
+
+        # Write header row
+        csv_writer.writerow(
+            [
+                "ID",
+                "Image Filename",
+                "Timestamps",
+                "Status",
+                "Kingdom",
+                "Phylum",
+                "Class",
+                "Order",
+                "Family",
+                "Genus",
+                "Species",
+            ]
+        )
+
+        # Write data rows
+        for fish in fish_data:
+            # Parse taxonomy data if available
+            taxonomy = {}
+            if fish["taxonomy_json"]:
+                taxonomy = json.loads(fish["taxonomy_json"])
+
+            # Write row
+            csv_writer.writerow(
+                [
+                    fish["id"],
+                    fish["image_filename"],
+                    fish["timestamps"],  # This will be a JSON string
+                    fish["status"],
+                    taxonomy.get("Kingdom", "Unknown"),
+                    taxonomy.get("Phylum", "Unknown"),
+                    taxonomy.get("Class", "Unknown"),
+                    taxonomy.get("Order", "Unknown"),
+                    taxonomy.get("Family", "Unknown"),
+                    taxonomy.get("Genus", "Unknown"),
+                    taxonomy.get("Species", "Unknown"),
+                ]
+            )
+
+        # Create response with CSV data
+        response = make_response(csv_data.getvalue())
+        response.headers["Content-Disposition"] = (
+            f"attachment; filename=fish_detections_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+        response.headers["Content-type"] = "text/csv"
+
+        return response
+
+    except Exception as e:
+        print(f"Error generating CSV: {e}")
+        return jsonify({"error": "Could not generate CSV"}), 500
 
 
 # --- Main Execution ---

@@ -31,6 +31,12 @@
         #results-table img {
             max-width: 100px;
             max-height: 70px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        #results-table img:hover {
+            transform: scale(1.1);
         }
 
         #results-table td,
@@ -54,6 +60,36 @@
 
         #error-message {
             margin-top: 15px;
+        }
+
+        /* Styles for the image modal */
+        .image-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            display: block;
+            max-width: 90%;
+            max-height: 90%;
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 15px;
+            right: 25px;
+            color: white;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
         }
     </style>
 </head>
@@ -90,7 +126,19 @@
             <div id="error-message" class="alert alert-danger" style="display: none;"></div>
         </div>
 
-        <h3 class="mt-5">Detected Fish</h3>
+        <div class="d-flex justify-content-between align-items-center mt-5 mb-2">
+            <h3 class="mb-0">Detected Fish</h3>
+            <button id="download-csv-button" class="btn btn-success" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                    class="bi bi-download me-1" viewBox="0 0 16 16">
+                    <path
+                        d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
+                    <path
+                        d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
+                </svg>
+                Download CSV
+            </button>
+        </div>
         <table class="table table-striped table-bordered" id="results-table">
             <thead>
                 <tr>
@@ -109,6 +157,12 @@
         </table>
     </div>
 
+    <!-- Image Modal -->
+    <div id="image-modal" class="image-modal">
+        <span class="close-modal">&times;</span>
+        <img class="modal-content" id="modal-img">
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         const dropZone = document.getElementById('drop-zone');
@@ -122,10 +176,15 @@
         const characterizationMessage = document.getElementById('characterization-message');
         const errorMessageDiv = document.getElementById('error-message');
         const resultsBody = document.getElementById('results-body');
+        const downloadCsvButton = document.getElementById('download-csv-button');
+        const imageModal = document.getElementById('image-modal');
+        const modalImg = document.getElementById('modal-img');
+        const closeModal = document.querySelector('.close-modal');
 
         let selectedFile = null;
         let progressInterval = null;
         let resultsInterval = null;
+        let hasResults = false;
 
         // --- Drag and Drop ---
         dropZone.addEventListener('click', () => videoInput.click());
@@ -323,6 +382,8 @@
                         fetch('/progress').then(r => r.json()).then(p => {
                             if (!p.processing_active && p.detection.current >= p.detection.total) {
                                 resultsBody.innerHTML = `<tr><td colspan="5" class="text-center">No fish detected or characterized yet.</td></tr>`;
+                                hasResults = false;
+                                downloadCsvButton.disabled = true;
                             } else {
                                 // Keep the initial message if processing is ongoing but no results yet
                                 if (resultsBody.innerHTML === '') { // Avoid flicker if already showing processing
@@ -350,13 +411,17 @@
 
                             row.innerHTML = `
                                  <td>${index + 1}</td>
-                                 <td><img src="${fish.image_url}" alt="Detected Fish ${fish.id}" class="img-thumbnail"></td>
+                                 <td><img src="${fish.image_url}" alt="Detected Fish ${fish.id}" class="img-thumbnail fish-image" data-fish-id="${fish.id}"></td>
                                  <td>${timestampsHtml}</td>
                                  <td>${taxonomyHtml}</td>
                                  <td><span class="badge bg-${getStatusColor(fish.status)}">${fish.status.replace('_', ' ')}</span></td>
                              `;
                             resultsBody.appendChild(row);
                         });
+
+                        // Enable the CSV download button when we have results
+                        hasResults = true;
+                        downloadCsvButton.disabled = false;
                     }
                 })
                 .catch(error => {
@@ -378,6 +443,43 @@
         // Initial load message
         resultsBody.innerHTML = '<tr><td colspan="5" class="text-center">Upload a video to begin.</td></tr>';
 
+        // --- CSV Download Button ---
+        downloadCsvButton.addEventListener('click', () => {
+            if (!hasResults) {
+                alert('No results available to download.');
+                return;
+            }
+            window.location.href = '/download-csv';
+        });
+
+        // --- Image Modal Functionality ---
+        // Event delegation for images (they may be added dynamically)
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('fish-image')) {
+                const img = e.target;
+                imageModal.style.display = 'flex';
+                modalImg.src = img.src;
+            }
+        });
+
+        // Close the modal when clicking X
+        closeModal.addEventListener('click', () => {
+            imageModal.style.display = 'none';
+        });
+
+        // Close modal when clicking outside the image
+        imageModal.addEventListener('click', (e) => {
+            if (e.target === imageModal) {
+                imageModal.style.display = 'none';
+            }
+        });
+
+        // Close modal with ESC key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && imageModal.style.display === 'flex') {
+                imageModal.style.display = 'none';
+            }
+        });
     </script>
 </body>
 

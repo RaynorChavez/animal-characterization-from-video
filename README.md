@@ -11,6 +11,8 @@ A web application that automatically detects fish in underwater videos, extracts
 - Integration with Google's Gemini AI for species identification
 - Real-time progress tracking with dual progress bars
 - Interactive results display with timestamps and taxonomic classifications
+- CSV export of detection data for further analysis
+- Clickable fish images with maximized view for detailed inspection
 
 ## Project Structure
 
@@ -84,6 +86,10 @@ fish-identifier-app/
    - Send the images to Gemini for species identification
    - Display results in a table with timestamps and taxonomic information
 
+5. Interact with results:
+   - Click on any fish image to view it in a larger size
+   - Download all detection data as a CSV file using the "Download CSV" button
+
 ## Technical Details
 
 - **Fish Detection**: Uses YOLOv8 to detect objects in video frames. By default, it captures all detected objects for Gemini to evaluate.
@@ -91,6 +97,7 @@ fish-identifier-app/
 - **Duplicate Handling**: Uses perceptual hashing (pHash) to identify similar fish appearances across frames.
 - **Database**: Uses SQLite to store detected fish, their timestamps, and taxonomic information.
 - **API Usage**: Implements rate limiting for Gemini API calls to stay within usage limits.
+- **Data Export**: Provides CSV download functionality for further analysis in spreadsheet software or data science tools.
 
 ## Customization via Environment Variables
 
